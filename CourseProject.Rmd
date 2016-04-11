@@ -1,0 +1,165 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Ming-Jen Chang"
+date: "10 April 2016"
+output:
+  html_document:
+keep_md: yes
+---
+
+## Project Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Objective
+The objective of this project is to predict the manner of performing unilateral dumbbell biceps curls based on data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The 5 possible methods include -
+
+* Class A: exactly according to the specification
+* Class B: throwing the elbows to the front
+* Class C: lifting the dumbbell only halfway
+* Class D: lowering the dumbbell only halfway
+* Class E: throwing the hips to the front
+
+## Data Preparation
+### Require Packages
+```{r, echo=FALSE}
+library(caret);
+library(rpart);
+library(rpart.plot);
+library(randomForest);
+library(RColorBrewer);
+library(rattle);
+library(e1071);
+library(knitr);
+```
+
+### Dowloading Files
+
+```{r}
+urlTraining <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+fileTraining <- "pml-training.csv"
+download.file(url = urlTraining, destfile=fileTraining, method="curl")
+urlTesting <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+fileTesting <- "pml-testing.csv"
+download.file(url = urlTesting, destfile = fileTesting, method = "curl")
+```
+
+### Loading Data
+In this step, "NA"", "" and "#DIV/0!" are treated as NA when data is loaded for further process
+```{r}
+dataTraining <- read.csv(fileTraining, na.strings = c("NA","","#DIV/0!"), header = TRUE)
+colTraining <- colnames(dataTraining)
+dataTesting <- read.csv(fileTesting, na.strings = c("NA","","#DIV/0!"), header = TRUE)
+colTesting <- colnames(dataTesting)
+```
+Invenstigate data dimension
+```{r}
+dim(dataTraining)
+dim(dataTesting)
+```
+There are 19622 observations and 160 variables in training dataset `dataTrainig`, while there are 20 observations and 160 variables in tsest dataset `dataTesting`. The "classe" variable in the training set is the outcome to predict.
+
+### Data Partitioning
+To estimate the out-of-sample error, the full training data is partitioned into a smaller training set (pTraining) and a validation set (pTesting):
+```{r}
+inTrain <- createDataPartition(dataTraining$classe, p=0.7, list=FALSE)
+pTraining <- dataTraining[inTrain, ]
+pTesting <- dataTraining[-inTrain, ]
+dim(pTraining); 
+dim(pTesting);
+```
+
+### Data Cleansing
+In previous step, NA values are identified and converted.Since they are not necessary for prediction, they can be removed.
+```{r}
+pTraining <- pTraining[, colSums(is.na(pTraining)) == 0] 
+pTesting <- pTesting[, colSums(is.na(pTesting)) == 0]
+```
+
+Except excluding NA values, it is also important to identify variables with near zero variance
+```{r}
+nz <- nearZeroVar(pTraining, saveMetrics=TRUE)
+subset(nz, zeroVar == TRUE | nzv == TRUE)
+```
+Variable `new_window` is identify as near zero variance hence it can be removed
+```{r}
+pTraining <- pTraining[, nz$nzv == FALSE]
+pTesting <- pTesting[, nz$nzv == FALSE]
+```
+Remove the first column of the `pTraining` data set
+```{r}
+pTraining <- pTraining[c(-1)]
+pTesting <- pTesting[c(-1)]
+```
+
+The number of variables has dropped from 162 to 58.
+```{r}
+colnames(pTraining)
+```
+Remove the last column from `dataTesting` dataset
+```{r}
+colTraining <- colnames(pTraining)
+dataTesting <- dataTesting[colnames(pTraining[, -58])]
+```
+
+To assure type of predictors in new data match that of the training data, it is required to coerce the data into the same type.
+```{r}
+# Coerce data
+for (i in 1:length(dataTesting) ) {
+        for(j in 1:length(pTraining)) {
+                if( length( grep(names(pTraining[i]), names(dataTesting)[j]) ) == 1)  {
+                        class(dataTesting[j]) <- class(pTraining[i])
+                }      
+        }      
+}
+
+dataTesting <- rbind(pTraining[2, -58] , dataTesting)  
+dataTesting <- dataTesting[-1,]
+```
+
+## Model Selection
+In terms of model selection, I use Regression Trees and Random Forests as prediction models and will compare their accuracy to decide which one is chosen.
+
+### Regression Tree
+```{r}
+set.seed(1234)
+fitRT <- rpart(classe ~ ., data = pTraining, method = "class")
+fancyRpartPlot(fitRT)
+
+predRT <- predict(fitRT, pTesting, type = "class")
+cmRT <- confusionMatrix(predRT, pTesting$classe)
+cmRT
+```
+
+The prediction result shows the accuracy is
+```{r}
+round(cmRT$overall['Accuracy'], 4)
+```
+And the out of sample error is
+```{r}
+round(1 - as.numeric(cmRT$overall[1]), 4)
+```
+
+### Random Forests
+```{r}
+set.seed(1234)
+fitRF <- randomForest(classe ~ ., data = pTraining)
+plot(fitRF, main = "Random Forests Model")
+
+predRF <- predict(fitRF, pTesting, type = "class")
+cmRF <- confusionMatrix(predRF, pTesting$classe)
+cmRF
+```
+The prediction result shows the accuracy is
+```{r}
+round(cmRF$overall['Accuracy'], 4)
+```
+And the out of sample error is
+```{r}
+round(1 - as.numeric(cmRF$overall[1]), 4)
+```
+
+## Conclusion
+According the results, Random Forests gives the better accuracy, hence the test cases will be run against Random Forests algorithm.
+```{r}
+predict(fitRF, dataTesting)
+```
